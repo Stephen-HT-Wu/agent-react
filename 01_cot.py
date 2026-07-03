@@ -5,7 +5,10 @@
   B 版：要求先逐項推理再給答案（CoT）
 
 目標：找出至少一個 A 版排錯、B 版排對的案例。
-已埋好的陷阱：阿堂鹹粥 04:30-12:00（賣完收攤）——排到晚餐就是錯的。
+已埋好的陷阱：
+  1. 阿堂鹹粥 04:30-12:00（賣完收攤）——排到晚餐就是錯的。
+  2. 莉莉水果店週三公休——TASK 指定「這個週三出發」，
+     若還把莉莉水果店排進行程，就是沒真的核對公休日對上出遊日期。
 
 執行前：
   pip install anthropic
@@ -18,9 +21,14 @@ import json
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 import anthropic
 
+load_dotenv()
+
 MODEL = os.getenv("ANTHROPIC_MODEL", "claude-opus-4-8")
+print(f"Using model: {MODEL}")
 DATA = Path(__file__).parent / "data" / "shops.json"
 
 client = anthropic.Anthropic()
@@ -42,27 +50,37 @@ def load_tainan_shops() -> str:
     return "\n".join(lines)
 
 
-TASK = "幫我用這些食尚玩家介紹過的店，排一個台南一日美食行程（早餐到宵夜），預算 800 元。"
-
+#TASK = "幫我用這些食尚玩家介紹過的店，排一個台南一日美食行程（早餐到宵夜），預算 800 元。"
+TASK = "幫我用這些食尚玩家介紹過的店，排一個台南一日美食行程（早餐到宵夜），這趟訂在這個週三出發，預算 800 元。"
 
 def build_prompt_a(shops_text: str) -> str:
     """A 版：直接問，不引導推理。"""
-    # TODO: 由你來寫。
-    # 提示：就是最樸素的問法——店家資料 + TASK，直接要行程。
-    # 刻意不要加任何「請思考」「請注意營業時間」之類的字眼。
-    raise NotImplementedError("把 A 版 prompt 寫在這裡")
+    return f"""安排台南一日遊行程。
+預算 800 元。
+店家資料：
+{shops_text}
+TASK：
+{TASK}
+"""
 
 
 def build_prompt_b(shops_text: str) -> str:
     """B 版：CoT——要求模型先列出考量、逐項推理，最後才給行程。"""
-    # TODO: 由你來寫。
-    # 提示：明確要求模型「先推理、後結論」，例如依序檢查：
-    #   1. 每家店的營業時間，對應到哪個用餐時段才合理
-    #   2. 地理動線（同區的店排在一起）
-    #   3. 預算加總不超過上限
-    #   4. 以上都檢查完，才輸出最終行程
-    # 進階：試試 few-shot——先給一小段「示範推理」，觀察輸出格式怎麼被帶著走。
-    raise NotImplementedError("把 B 版 prompt 寫在這裡")
+    return f"""先推理、後結論。
+安排台南一日遊行程。
+預算 800 元。
+依序檢查：
+1. 每家店的營業時間，對應到哪個用餐時段才合理
+2. 每家店的公休日，是否剛好對到 TASK 指定的出遊日期，
+   若公休就必須從行程中排除或替換掉該店
+3. 地理動線（同區的店排在一起）
+4. 預算加總不超過上限
+5. 以上都檢查完，才輸出最終行程
+店家資料：
+{shops_text}
+TASK：
+{TASK}
+"""
 
 
 def ask(prompt: str) -> str:
@@ -96,6 +114,7 @@ def main() -> None:
     print("=" * 60)
     print("[ ] 阿堂鹹粥（04:30-12:00）有沒有被排到下午或晚上？")
     print("[ ] 阿明豬心冬粉（17:00-00:00）有沒有被排到白天？")
+    print("[ ] 莉莉水果店（週三公休）有沒有還是被排進這趟週三的行程？")
     print("[ ] 預算加總有沒有超過 800？（A 版常常不加總就宣稱沒超過）")
     print("[ ] 動線合不合理？（中西區的店互相都在步行距離內）")
     print("跑個 3-5 次：單次 A 版可能剛好答對，多跑幾次看錯誤率的差異。")
