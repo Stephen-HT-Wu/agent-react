@@ -1,0 +1,105 @@
+"""階段 1：CoT (Chain-of-Thought) 練習。
+
+同一個行程規劃問題問兩次：
+  A 版：直接要答案（無 CoT 基準線）
+  B 版：要求先逐項推理再給答案（CoT）
+
+目標：找出至少一個 A 版排錯、B 版排對的案例。
+已埋好的陷阱：阿堂鹹粥 04:30-12:00（賣完收攤）——排到晚餐就是錯的。
+
+執行前：
+  pip install anthropic
+  export ANTHROPIC_API_KEY=...
+執行：
+  python3 01_cot.py
+"""
+
+import json
+import os
+from pathlib import Path
+
+import anthropic
+
+MODEL = os.getenv("ANTHROPIC_MODEL", "claude-opus-4-8")
+DATA = Path(__file__).parent / "data" / "shops.json"
+
+client = anthropic.Anthropic()
+
+
+def load_tainan_shops() -> str:
+    """把台南店家整理成塞進 prompt 的文字。
+
+    這階段刻意不做檢索——全部資料直接進 prompt，
+    等階段 3 資料塞不下時你就會體會到為什麼需要 RAG。
+    """
+    shops = [s for s in json.loads(DATA.read_text(encoding="utf-8")) if s["city"] == "台南"]
+    lines = []
+    for s in shops:
+        lines.append(
+            f"- {s['name']}（{s['district']}）：{s['dish']}，"
+            f"營業 {s['hours']}，價位 {s['price_range']} 元。{s['note']}"
+        )
+    return "\n".join(lines)
+
+
+TASK = "幫我用這些食尚玩家介紹過的店，排一個台南一日美食行程（早餐到宵夜），預算 800 元。"
+
+
+def build_prompt_a(shops_text: str) -> str:
+    """A 版：直接問，不引導推理。"""
+    # TODO: 由你來寫。
+    # 提示：就是最樸素的問法——店家資料 + TASK，直接要行程。
+    # 刻意不要加任何「請思考」「請注意營業時間」之類的字眼。
+    raise NotImplementedError("把 A 版 prompt 寫在這裡")
+
+
+def build_prompt_b(shops_text: str) -> str:
+    """B 版：CoT——要求模型先列出考量、逐項推理，最後才給行程。"""
+    # TODO: 由你來寫。
+    # 提示：明確要求模型「先推理、後結論」，例如依序檢查：
+    #   1. 每家店的營業時間，對應到哪個用餐時段才合理
+    #   2. 地理動線（同區的店排在一起）
+    #   3. 預算加總不超過上限
+    #   4. 以上都檢查完，才輸出最終行程
+    # 進階：試試 few-shot——先給一小段「示範推理」，觀察輸出格式怎麼被帶著走。
+    raise NotImplementedError("把 B 版 prompt 寫在這裡")
+
+
+def ask(prompt: str) -> str:
+    # 刻意不開 thinking：這個練習要觀察的是「prompt 引導出的推理」，
+    # 模型內建的 thinking 會替你完成推理，A/B 對比就失真了。
+    response = client.messages.create(
+        model=MODEL,
+        max_tokens=4096,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return "".join(block.text for block in response.content if block.type == "text")
+
+
+def main() -> None:
+    shops_text = load_tainan_shops()
+
+    print("=" * 60)
+    print("A 版（無 CoT）")
+    print("=" * 60)
+    print(ask(build_prompt_a(shops_text)))
+
+    print()
+    print("=" * 60)
+    print("B 版（CoT）")
+    print("=" * 60)
+    print(ask(build_prompt_b(shops_text)))
+
+    print()
+    print("=" * 60)
+    print("驗收檢查（人工核對）")
+    print("=" * 60)
+    print("[ ] 阿堂鹹粥（04:30-12:00）有沒有被排到下午或晚上？")
+    print("[ ] 阿明豬心冬粉（17:00-00:00）有沒有被排到白天？")
+    print("[ ] 預算加總有沒有超過 800？（A 版常常不加總就宣稱沒超過）")
+    print("[ ] 動線合不合理？（中西區的店互相都在步行距離內）")
+    print("跑個 3-5 次：單次 A 版可能剛好答對，多跑幾次看錯誤率的差異。")
+
+
+if __name__ == "__main__":
+    main()
