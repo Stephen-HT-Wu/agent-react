@@ -1,0 +1,30 @@
+{
+  "台南": {
+    "location": "台南市",
+    "forecast": [
+      { "period": "今明兩天", "weather": "晴時多雲", "rain_probability": 20, "min_temp": 28, "max_temp": 32 },
+      { "period": "週末", "weather": "午後短暫雷陣雨", "rain_probability": 60, "min_temp": 27, "max_temp": 33 }
+    ]
+  },
+  "台中": {
+    "location": "台中市",
+    "forecast": [
+      { "period": "今明兩天", "weather": "多雲時晴", "rain_probability": 10, "min_temp": 25, "max_temp": 30 },
+      { "period": "週末", "weather": "晴時多雲", "rain_probability": 20, "min_temp": 26, "max_temp": 31 }
+    ]
+  },
+  "高雄": {
+    "location": "高雄市",
+    "forecast": [
+      { "period": "今明兩天", "weather": "晴", "rain_probability": 10, "min_temp": 27, "max_temp": 34 },
+      { "period": "週末", "weather": "午後短暫雷陣雨", "rain_probability": 50, "min_temp": 27, "max_temp": 33 }
+    ]
+  },
+  "嘉義": {
+    "location": "嘉義市",
+    "forecast": [
+      { "period": "今明兩天", "weather": "多雲", "rain_probability": 30, "min_temp": 25, "max_temp": 31 },
+      { "period": "週末", "weather": "陰有雨", "rain_probability": 70, "min_temp": 24, "max_temp": 28 }
+    ]
+  }
+}

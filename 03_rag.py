@@ -191,18 +191,15 @@ def build_prompt_full_context(question: str, all_docs: dict[str, str]) -> str:
 def build_prompt_retrieved(
     question: str, retrieved: list[tuple[str, float]], all_docs: dict[str, str]
 ) -> str:
-    """C 版：真 RAG——只把 retrieve_top_k() 撈到的文件塞進 prompt。
+    """C 版：真 RAG——只把 retrieve_top_k() 撈到的文件塞進 prompt。"""
+    doc_content = "\n\n".join(
+        f"### {name}\n{all_docs[name]}" for name, _ in retrieved
+    )
+    return f"""請參考以下文件，回答以下問題：{question}
+如果不確定就誠實說不知道，不要編造答案。
+回答要附出處（哪家店、出自哪篇報導——報導名稱在每篇文件最後一行「出處：...」）。
 
-    TODO 由你實作：
-    retrieved 是 [(店名, 相似度分數), ...]，用店名去 all_docs 撈出對應內文，
-    只把這幾篇（不是全部 20 篇）塞進 prompt，一樣要求附出處。
-    """
-    retrieved_docs = [all_docs[name] for name, _ in retrieved]
-    return f"""請參考以下文件，回答以下問題：{question}。
-    如果不確定就誠實說不知道，不要編造答案。
-    回答要附出處（哪家店、出自哪篇報導——報導名稱在每篇文件最後一行「出處：...」）：
-    {retrieved_docs}
-    """
+{doc_content}"""
 
 def main() -> None:
     print("=" * 60)
