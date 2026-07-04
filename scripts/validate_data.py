@@ -21,7 +21,6 @@ PRICE_RE = re.compile(r"^\d+-\d+$")
 LAT_RANGE = (21.5, 25.5)
 LNG_RANGE = (119.5, 122.5)
 
-
 def main() -> int:
     errors: list[str] = []
     warnings: list[str] = []
@@ -47,7 +46,7 @@ def main() -> int:
         if isinstance(lng, (int, float)) and not LNG_RANGE[0] <= lng <= LNG_RANGE[1]:
             errors.append(f"{name}: lng 超出台灣範圍 ({lng})")
         if not shop.get("verified"):
-            warnings.append(f"{name}: 出處未查證 (verified=false)，找到食尚玩家來源後補上 source 連結")
+            warnings.append(f"{name}: verified=false，可於 source 欄位補充內部備註")
 
     doc_names = {p.stem for p in DOCS.glob("*.md")}
     for name in names:
@@ -59,7 +58,7 @@ def main() -> int:
     for doc in DOCS.glob("*.md"):
         length = len(doc.read_text(encoding="utf-8"))
         if length < 100:
-            warnings.append(f"docs/{doc.name}: 內容太短 ({length} 字)，建議 100-300 字的節目介紹")
+            warnings.append(f"docs/{doc.name}: 內容太短 ({length} 字)，建議 100-300 字的店家介紹")
 
     print(f"共 {len(shops)} 家店、{len(doc_names)} 篇文件")
     by_city: dict[str, int] = {}
@@ -82,7 +81,6 @@ def main() -> int:
         print(f"\n目標 20 家以上，還差 {20 - len(shops)} 家。")
 
     return 1 if errors else 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

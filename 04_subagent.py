@@ -10,10 +10,10 @@
   └── 預算控管   —— 只有 shops.json 價格工具，檢查總花費
 
 任務（PLAN.md 原題）：
-  「兩天一夜台中食尚玩家美食之旅，預算 3000，不騎車用大眾運輸」
+  「兩天一夜台中美食之旅，預算 3000，不騎車用大眾運輸」
 
 刻意設計的衝突點：
-  美食評論員看不到預算數字，很可能把丸南生魚片等食尚玩家招牌宵夜全排進去；
+  美食評論員看不到預算數字，很可能把河南夜宵生魚等招牌宵夜全排進去；
   預算控管會把住宿+大眾運輸先扣掉 2000，餐飲只剩 1000——
   若推薦名單含多家高價位、又涵蓋兩天六餐，就容易判定超標，
   orchestrator 必須仲裁（請評論員降級替換，或刪減二訪）。
@@ -64,7 +64,7 @@ LANDMARKS: dict[str, tuple[float, float]] = {
     "逢甲夜市": (24.1798, 120.6469),
 }
 
-TASK = "兩天一夜台中食尚玩家美食之旅，預算 3000，不騎車用大眾運輸"
+TASK = "兩天一夜台中美食之旅，預算 3000，不騎車用大眾運輸"
 TOTAL_BUDGET = 3000
 LODGING_TRANSIT_RESERVE = 2000  # 預算控管：兩天一夜食宿交通預留（不含機車）
 
@@ -363,7 +363,7 @@ def run_subagent(
             FOOD_CRITIC_SYSTEM,
             FOOD_CRITIC_TOOLS,
             FOOD_CRITIC_HANDLERS,
-            "兩天一夜台中食尚玩家美食之旅，請推薦 5 家店",
+            "兩天一夜台中美食之旅，請推薦 5 家店",
         )
         # report 是 str，給 orchestrator 抽店名或傳給下一個子 agent 的摘要
 
@@ -423,15 +423,15 @@ def run_subagent(
 # 三個子 agent 的設定（不同 system prompt、不同工具集）
 # ---------------------------------------------------------------------------
 
-FOOD_CRITIC_SYSTEM = """你是「美食評論員」子 agent，只負責從食尚玩家介紹過的台中美食中選店並說明理由。
+FOOD_CRITIC_SYSTEM = """你是「美食評論員」子 agent，只負責從資料集裡的台中美食中選店並說明理由。
 你只能使用 retrieve_food_docs 檢索介紹文，不能使用價格、距離、營業時間等工具——那些是別人的工作。
-你不知道總預算數字，請專注推薦最具代表性的必吃名店（含宵夜傳奇店），並說明食尚玩家為何推薦。
+你不知道總預算數字，請專注推薦最具代表性的必吃名店（含宵夜傳奇店），並說明為何值得推薦。
 最後請列出 5 家店名（JSON 陣列格式 shop_names），並附每家一句推薦理由。"""
 
 FOOD_CRITIC_TOOLS = [
     {
         "name": "retrieve_food_docs",
-        "description": "依關鍵字從食尚玩家台中店家介紹文（RAG）檢索最相關的文件片段。",
+        "description": "依關鍵字從台中店家介紹文（RAG）檢索最相關的文件片段。",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -488,13 +488,13 @@ TRANSPORT_TOOLS = [
         },
     },
 ]
-
+# 交通規劃師的工具處理函式 對照表，Action 時由 _call_handler 派發。
 TRANSPORT_HANDLERS: dict[str, ToolHandler] = {
     "distance": distance,
     "estimate_transit": estimate_transit,
     "plan_route": plan_route,
 }
-
+# 預算控管的系統提示詞
 BUDGET_SYSTEM = f"""你是「預算控管」子 agent，只負責檢查花費。
 你只能使用 get_taichung_price_table、estimate_food_cost、check_budget。
 總預算 {TOTAL_BUDGET} 元中，住宿+大眾運輸預留 {LODGING_TRANSIT_RESERVE} 元，餐飲只剩
@@ -544,9 +544,10 @@ BUDGET_HANDLERS: dict[str, ToolHandler] = {
 # ---------------------------------------------------------------------------
 # Orchestrator：委派、衝突仲裁、彙整（不掛子 agent 的工具）
 # ---------------------------------------------------------------------------
-
+# 從子 agent 報告中抽出店名（依在文字中出現的順序）。
 def extract_shop_names(text: str) -> list[str]:
     """從子 agent 報告中抽出店名（依在文字中出現的順序）。"""
+    # regular expression 正規表示式 的意思是 用來搜尋字串的規則 這裡是搜尋 shop_names 的規則
     json_match = re.search(r"shop_names\s*[:：]\s*(\[[\s\S]*?\])", text)
     if json_match:
         try:
@@ -613,7 +614,7 @@ def run_transport_planner(shop_names: list[str]) -> str:
         summary,
     )
 
-
+# 行程總監最後彙整——只有各子 agent 的報告摘要，沒有他們的 tool 軌跡。
 def synthesize_itinerary(
     task: str,
     food_report: str,
@@ -647,7 +648,7 @@ def synthesize_itinerary(
     )
     return "".join(b.text for b in response.content if b.type == "text")
 
-
+# 行程總監：委派、衝突仲裁、彙整（不掛子 agent 的工具）
 def run_orchestrator(task: str) -> None:
     print("\n" + "#" * 60)
     print("[行程總監] 開始委派（orchestrator 自己不掛工具）")
@@ -668,7 +669,7 @@ def run_orchestrator(task: str) -> None:
 
     # ③ 衝突仲裁
     if not budget_result.get("within_budget", True):
-        arbitrated = True
+        arbitrated = True #衝突仲裁
         over = budget_result.get("food_over_by") or budget_result.get("over_by", 0)
         print(f"\n{'!' * 60}")
         print(f"[行程總監] ⚠️ 偵測到衝突：餐飲預估超出 {over} 元")
@@ -678,7 +679,7 @@ def run_orchestrator(task: str) -> None:
         arbitration = (
             f"預算控管回報：{budget_report}\n"
             f"餐飲預算只剩 {TOTAL_BUDGET - LODGING_TRANSIT_RESERVE} 元。"
-            f"請保留食尚玩家特色，但替換或刪除最貴的選項（提示：丸南生魚片單價高），"
+            f"請保留在地特色，但替換或刪除最貴的選項（提示：河南夜宵生魚單價高），"
             f"讓 5 家店仍具代表性且總餐飲費不超標。"
         )
         food_report = run_food_critic(task, extra=arbitration)

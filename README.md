@@ -1,6 +1,6 @@
 # agent-react
 
-以《食尚玩家》介紹過的店家為素材，**手刻**一條從 prompt 到 multi-agent 的學習路徑：CoT → ReAct → RAG → Subagent → A2A。刻意不用 LangChain 等框架，目的是看見每個機制的裸實作。
+以本專案練習資料集裡的虛構店家為素材，**手刻**一條從 prompt 到 multi-agent 的學習路徑：CoT → ReAct → RAG → Subagent → A2A。刻意不用 LangChain 等框架，目的是看見每個機制的裸實作。
 
 完整練習規劃見 [PLAN.md](PLAN.md)；各階段實際跑出來的結果與機制筆記見 [NOTES.md](NOTES.md)。
 
@@ -52,7 +52,7 @@ python3 05_a2a_travel_agent.py
 python3 05_a2a_food_agent.py test
 ```
 
-測試題：「這週末去台南吃食尚玩家名店，會下雨嗎？怎麼搭車？」
+測試題：「這週末去台南吃資料集裡的名店，會下雨嗎？怎麼搭車？」
 
 美食 agent 會從旅遊 agent 的 `GET /agent-card` 動態取得天氣、公車能力，再透過 `POST /tasks` 委派；本地則用階段 3 的 RAG 回答美食問題。
 
@@ -74,7 +74,7 @@ agent-react/
 ├── 05_a2a_travel_agent.py # 階段 5：旅遊 agent（服務端）
 ├── data/
 │   ├── shops.json         # 結構化店家（工具查詢用）
-│   ├── docs/*.md          # 節目介紹摘要（RAG 用）
+│   ├── docs/*.md          # 店家介紹摘要（RAG 用）
 │   ├── weather.json       # 階段 5 模擬天氣
 │   └── bus_routes.json    # 階段 5 模擬公車路線
 ├── scripts/
@@ -100,4 +100,4 @@ agent-react/
 
 ## License
 
-學習用途專案；食尚玩家相關內容請遵守原報導出處與合理使用範圍。
+學習用途專案；資料為練習用途之虛構整理，請勿當作真實店家資訊。

@@ -8,7 +8,7 @@ agent 服務，彼此不共用程式碼、不共用記憶體，只能透過 HTTP
 
 這支檔案是「旅遊資訊 agent」：提供天氣、公車路線兩個能力，包成一個獨立的
 HTTP 服務。這支檔案已經全部寫好——階段 5 真正的練習在 05_a2a_food_agent.py
-那邊（食尚玩家美食 agent 要「動態」發現這支服務的能力，不能用寫死的 if/else）。
+那邊（美食 agent 要「動態」發現這支服務的能力，不能用寫死的 if/else）。
 
 原本這裡是直接借用 ../open-play/taiwan-travel-ai 現成的 cwa.py/tdx.py 呼叫
 真實的 CWA、TDX API——但這樣一來，agent-react 這個練習專案就跨專案依賴了
@@ -42,7 +42,6 @@ DATA_DIR = Path(__file__).parent / "data"
 WEATHER_PATH = DATA_DIR / "weather.json"
 BUS_ROUTES_PATH = DATA_DIR / "bus_routes.json"
 
-
 def _load_mock_data() -> tuple[dict, dict]:
     """啟動時載入模擬資料，缺檔就給明確錯誤。"""
     missing = [p for p in (WEATHER_PATH, BUS_ROUTES_PATH) if not p.exists()]
@@ -55,9 +54,7 @@ def _load_mock_data() -> tuple[dict, dict]:
     bus_routes = json.loads(BUS_ROUTES_PATH.read_text(encoding="utf-8"))
     return weather, bus_routes
 
-
 WEATHER, BUS_ROUTES = _load_mock_data()
-
 
 # ---------------------------------------------------------------------------
 # 能力實作：模擬資料查詢，統一回傳格式、統一錯誤處理
@@ -69,7 +66,6 @@ def get_weather(city: str) -> dict:
         raise LookupError(f"沒有「{city}」的天氣資料，目前只支援：{list(WEATHER.keys())}")
     return WEATHER[city]
 
-
 def search_bus_routes(city: str, keyword: str = "") -> dict:
     """查某縣市的市區公車路線（模擬資料，不是即時 API）。查不到城市就丟例外。"""
     if city not in BUS_ROUTES:
@@ -78,7 +74,6 @@ def search_bus_routes(city: str, keyword: str = "") -> dict:
     if keyword:
         routes = [r for r in routes if keyword in r["route_name"] or keyword in r["note"]]
     return {"routes": routes}
-
 
 CAPABILITIES = {
     "get_weather": get_weather,
@@ -123,7 +118,6 @@ AGENT_CARD = {
         },
     ],
 }
-
 
 # ---------------------------------------------------------------------------
 # HTTP 服務
@@ -172,7 +166,6 @@ class TravelAgentHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args) -> None:
         print(f"[travel-agent] {fmt % args}")
 
-
 def main() -> None:
     server = ThreadingHTTPServer(("localhost", PORT), TravelAgentHandler)
     print(f"旅遊資訊 agent 啟動：http://localhost:{PORT}")
@@ -183,7 +176,6 @@ def main() -> None:
     except KeyboardInterrupt:
         print("\n關閉旅遊資訊 agent")
         server.shutdown()
-
 
 if __name__ == "__main__":
     main()

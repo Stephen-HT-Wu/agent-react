@@ -6,9 +6,9 @@
 
 目標：找出至少一個 A 版排錯、B 版排對的案例。
 已埋好的陷阱：
-  1. 阿堂鹹粥 04:30-12:00（賣完收攤）——排到晚餐就是錯的。
-  2. 莉莉水果店週三公休——TASK 指定「這個週三出發」，
-     若還把莉莉水果店排進行程，就是沒真的核對公休日對上出遊日期。
+  1. 老城鹹粥 04:30-12:00（賣完收攤）——排到晚餐就是錯的。
+  2. 府前冰果室週三公休——TASK 指定「這個週三出發」，
+     若還把府前冰果室排進行程，就是沒真的核對公休日對上出遊日期。
 
 執行前：
   pip install anthropic
@@ -33,7 +33,6 @@ DATA = Path(__file__).parent / "data" / "shops.json"
 
 client = anthropic.Anthropic()
 
-
 def load_tainan_shops() -> str:
     """把台南店家整理成塞進 prompt 的文字。
 
@@ -49,9 +48,8 @@ def load_tainan_shops() -> str:
         )
     return "\n".join(lines)
 
-
-#TASK = "幫我用這些食尚玩家介紹過的店，排一個台南一日美食行程（早餐到宵夜），預算 800 元。"
-TASK = "幫我用這些食尚玩家介紹過的店，排一個台南一日美食行程（早餐到宵夜），這趟訂在這個週三出發，預算 800 元。"
+#TASK = "幫我用這些資料集裡的店，排一個台南一日美食行程（早餐到宵夜），預算 800 元。"
+TASK = "幫我用這些資料集裡的店，排一個台南一日美食行程（早餐到宵夜），這趟訂在這個週三出發，預算 800 元。"
 
 def build_prompt_a(shops_text: str) -> str:
     """A 版：直接問，不引導推理。"""
@@ -62,7 +60,6 @@ def build_prompt_a(shops_text: str) -> str:
 TASK：
 {TASK}
 """
-
 
 def build_prompt_b(shops_text: str) -> str:
     """B 版：CoT——要求模型先列出考量、逐項推理，最後才給行程。"""
@@ -82,7 +79,6 @@ TASK：
 {TASK}
 """
 
-
 def ask(prompt: str) -> str:
     # 刻意不開 thinking：這個練習要觀察的是「prompt 引導出的推理」，
     # 模型內建的 thinking 會替你完成推理，A/B 對比就失真了。
@@ -92,7 +88,6 @@ def ask(prompt: str) -> str:
         messages=[{"role": "user", "content": prompt}],
     )
     return "".join(block.text for block in response.content if block.type == "text")
-
 
 def main() -> None:
     shops_text = load_tainan_shops()
@@ -112,13 +107,12 @@ def main() -> None:
     print("=" * 60)
     print("驗收檢查（人工核對）")
     print("=" * 60)
-    print("[ ] 阿堂鹹粥（04:30-12:00）有沒有被排到下午或晚上？")
-    print("[ ] 阿明豬心冬粉（17:00-00:00）有沒有被排到白天？")
-    print("[ ] 莉莉水果店（週三公休）有沒有還是被排進這趟週三的行程？")
+    print("[ ] 老城鹹粥（04:30-12:00）有沒有被排到下午或晚上？")
+    print("[ ] 保安豬心肺粉（17:00-00:00）有沒有被排到白天？")
+    print("[ ] 府前冰果室（週三公休）有沒有還是被排進這趟週三的行程？")
     print("[ ] 預算加總有沒有超過 800？（A 版常常不加總就宣稱沒超過）")
     print("[ ] 動線合不合理？（中西區的店互相都在步行距離內）")
     print("跑個 3-5 次：單次 A 版可能剛好答對，多跑幾次看錯誤率的差異。")
-
 
 if __name__ == "__main__":
     main()
