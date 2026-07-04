@@ -1,4 +1,4 @@
-# 練習筆記：階段 1（CoT）、階段 2（ReAct）、階段 3（RAG）、階段 4（Subagent）
+# 練習筆記：階段 1（CoT）、階段 2（ReAct）、階段 3（RAG）、階段 4（Subagent）、階段 5（A2A）
 
 這份文件記錄各階段練習的機制解說與實際跑出來的結果（不是預期會發生什麼、是真的發生了什麼）。
 規劃緣由與後續階段見 [PLAN.md](PLAN.md)；資料集見 [data/README.md](data/README.md)。
@@ -667,6 +667,138 @@ RAG（再加上後面的 agent）做的是這層轉換：
 ```bash
 source venv/bin/activate
 python3 04_subagent.py
+```
+
+---
+
+## 階段 5：A2A（Agent-to-Agent）—— [05_a2a_food_agent.py](05_a2a_food_agent.py) · [05_a2a_travel_agent.py](05_a2a_travel_agent.py)
+
+### 這個練習在測什麼
+
+階段 4 的 subagent 是**同一支程式、同一個 process** 裡的委派；階段 5 改成**兩個可獨立部署的 HTTP 服務**，
+只靠網路溝通——像兩家不同公司的系統合作，你不會把對方原始碼裝進自己的 repo，只能靠對方
+公開的 **agent card**（能力說明書）+ 固定的任務 API 來協作。
+
+| 服務 | 檔案 | Port | 角色 |
+|---|---|---|---|
+| 旅遊資訊 agent | [`05_a2a_travel_agent.py`](05_a2a_travel_agent.py) | 8500 | 服務端：天氣、公車路線（模擬資料） |
+| 美食 agent | [`05_a2a_food_agent.py`](05_a2a_food_agent.py) | 8600 | 客戶端：RAG 美食推薦 + **動態發現**遠端能力 |
+
+測試題：「這週末去台南吃食尚玩家名店，會下雨嗎？怎麼搭車？」
+
+### 自訂協定（簡化版 A2A）
+
+```
+GET  /agent-card
+  → {"name", "description", "capabilities": [{"name", "description", "input_schema"}, ...]}
+
+POST /tasks
+  請求 {"capability": "<名稱>", "input": {...}}
+  回應 {"status": "completed", "output": {...}} 或 {"status": "failed", "error": "..."}
+```
+
+`input_schema` 直接採 Claude tool 格式，美食 agent 的 [`capabilities_to_tools()`](05_a2a_food_agent.py)
+可以原封轉成工具定義，不必為每個遠端能力重寫 schema。
+
+旅遊 agent 刻意用 [`data/weather.json`](data/weather.json)、[`data/bus_routes.json`](data/bus_routes.json)
+模擬天氣與公車——這個練習的重點是 **A2A 協定與能力發現**，不是接真實 CWA/TDX API
+（也避免跨專案依賴與憑證設定）。
+
+### 流程（對照 PLAN.md）
+
+```
+使用者問題
+    ↓
+美食 agent：run_food_agent_task()
+    ↓
+① fetch_agent_card(TRAVEL_AGENT_URL)     ← 執行當下才問對方有什麼能力
+② capabilities_to_tools() → 合併 LOCAL_TOOLS + 遠端 tools
+③ ReAct 迴圈（跟階段 2 同架構）
+    ├── 本地 Action → LOCAL_HANDLERS（recommend_food_itinerary → 階段 3 RAG）
+    └── 遠端 Action → call_remote_capability() → POST 旅遊 agent /tasks
+    ↓
+最終回答（彙整天氣 + 美食 + 交通）
+```
+
+### 程式碼對照：A2A 在哪裡
+
+| 機制 | 程式碼 | 說明 |
+|---|---|---|
+| 能力發現 | [`fetch_agent_card()`](05_a2a_food_agent.py) | `GET /agent-card`；連線失敗會提示先啟動旅遊 agent |
+| 動態轉工具 | [`capabilities_to_tools()`](05_a2a_food_agent.py) | **不寫死** `get_weather` 等名稱；驗證 card 格式 |
+| 遠端派送 | [`call_remote_capability()`](05_a2a_food_agent.py) | 一律 `POST /tasks`；`capability` 只是 JSON 欄位 |
+| 本地 RAG | [`recommend_food_itinerary()`](05_a2a_food_agent.py) | 借用 [`03_rag`](03_rag.py) 的 `retrieve_top_k` + `build_prompt_retrieved` |
+| 遠端執行 | [`CAPABILITIES`](05_a2a_travel_agent.py) | `get_weather` / `search_bus_routes` 查模擬 JSON |
+| HTTP 服務 | 兩支檔案的 `*AgentHandler` | 各自暴露 `/agent-card` 與 `/tasks` |
+
+**判斷「這是不是 A2A」的關鍵訊號**：美食 agent 在寫程式時**不知道**旅遊 agent 有哪些工具名稱；
+工具清單是 `run_food_agent_task()` 開頭才從 HTTP 要來的。若改成 `if name == "get_weather":`
+就退回階段 4 的「同程式內已知子能力」思維。
+
+### A2A vs Subagent（本質差異）
+
+| | Subagent（階段 4） | A2A（階段 5） |
+|---|---|---|
+| 邊界 | 同一 process、同一 codebase | 不同服務、不同 port、可不同機器 |
+| 能力從哪來 | `FOOD_CRITIC_TOOLS` 寫死在程式裡 | `GET /agent-card` **執行時發現** |
+| 委派方式 | `run_subagent()` 直接呼叫 | `call_remote_capability()` 發 HTTP |
+| 信任 | 子 agent 完全互信 | 需靠 agent card + 協定（這裡無認證，真實世界要加） |
+| 擴充 | 改 Python 常數 + handlers | 旅遊端多宣告一個 capability，美食端**可不改碼** |
+
+### 實際跑出來的結果（`python3 05_a2a_food_agent.py test`）
+
+模型依序呼叫了三個工具，本地與遠端交錯：
+
+| 順序 | Action | 來源 | 結果摘要 |
+|---|---|---|---|
+| 1 | `get_weather(city='台南')` | 遠端旅遊 agent | 週末午後短暫雷陣雨，降雨機率 60% |
+| 2 | `recommend_food_itinerary(...)` | 本地 RAG | 阿堂鹹粥、阿明豬心冬粉、莉莉水果店 |
+| 3 | `search_bus_routes(city='台南')` | 遠端旅遊 agent | 藍幹線、88 假日觀光巴士 |
+
+最終回答有整合天氣建議（帶傘、早上出門）、三家名店與公車建議——**沒有**在沒呼叫工具的情況下憑空編天氣，
+符合驗收「發現自己沒有能力 → 讀 agent card → 委派遠端」的設計。
+
+### 修復與設計取捨（實作時踩過的點）
+
+- **`build_prompt_retrieved` 修正**（[`03_rag.py`](03_rag.py)）：C 版改為 `### 店名\n內文` 格式，
+  不再把 Python list repr 塞進 prompt（否則美食 agent 的 RAG 品質會很差）。
+- **連線錯誤**：`fetch_agent_card` / `call_remote_capability` catch `URLError`，
+  提示先執行 `python3 05_a2a_travel_agent.py`。
+- **遠端錯誤語意**：旅遊 agent 失敗回 `status: failed`；美食端也檢查 `output` 內是否含 `error`。
+- **模擬資料啟動檢查**：旅遊 agent 啟動時確認 `weather.json` / `bus_routes.json` 存在。
+
+### 跟 Google A2A 規格的差距（延伸思考）
+
+本練習是**同步、無認證、無狀態機**的極簡版。真實 A2A（[Google A2A](https://google.github.io/A2A/)）還會有：
+
+| 本練習 | 真實世界為何需要 |
+|---|---|
+| `POST /tasks` 同步等結果 | 訂票等長任務需要 pending → working → completed 狀態機 |
+| 一次回傳完整 output | 串流進度（邊做邊回報） |
+| localhost 互信 | API key / OAuth，防冒充與未授權呼叫 |
+
+### 跑法
+
+```bash
+source venv/bin/activate
+
+# terminal 1：先啟動旅遊 agent
+python3 05_a2a_travel_agent.py
+
+# terminal 2：跑測試題（不必啟動美食 HTTP server）
+python3 05_a2a_food_agent.py test
+
+# 或啟動美食 agent 自己的服務（port 8600）
+python3 05_a2a_food_agent.py
+```
+
+手動探測旅遊 agent：
+
+```bash
+curl http://localhost:8500/agent-card
+curl -X POST http://localhost:8500/tasks \
+  -H 'Content-Type: application/json' \
+  -d '{"capability":"get_weather","input":{"city":"台南"}}'
 ```
 
 ---
