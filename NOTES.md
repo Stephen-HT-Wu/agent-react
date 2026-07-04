@@ -1,6 +1,6 @@
-# 練習筆記：階段 1（CoT）與階段 2（ReAct）
+# 練習筆記：階段 1（CoT）、階段 2（ReAct）、階段 3（RAG）
 
-這份文件記錄兩個練習實際做完後的結果，不是預期會發生什麼、是真的發生了什麼。
+這份文件記錄各階段練習的機制解說與實際跑出來的結果（不是預期會發生什麼、是真的發生了什麼）。
 規劃緣由與後續階段見 [PLAN.md](PLAN.md)；資料集見 [data/README.md](data/README.md)。
 
 ---
@@ -234,3 +234,359 @@ print(m.call_tool('is_open', {'shop_name': '旺伯臭都腐', 'time': '23:00'}))
 候選再篩選，看看修正搜尋策略後答案會不會變成正確的旺伯臭豆腐。這也是階段 4
 （Subagent）會遇到的問題的縮影：工具設計得好不好，直接決定 agent 能不能查到
 對的答案。
+
+---
+
+## 階段 3：RAG（Retrieval-Augmented Generation）—— [03_rag.py](03_rag.py)
+
+### RAG 的底層邏輯
+
+RAG 不管用什麼技術實作，底層都是兩步：
+
+```
+1. Retrieval（檢索）  問題 → 從知識庫找出最相關的幾段
+2. Generation（生成）  把撈到的內容塞進 prompt → 叫 LLM 回答
+```
+
+展開來就是 **Retrieve → Augment → Generate**：
+
+> **先找相關片段，再讓模型根據資料回答**——不是讓模型憑記憶瞎猜。
+
+[`03_rag.py`](03_rag.py) 對應關係：
+
+| RAG 步驟 | 程式碼 |
+|---|---|
+| 知識庫 | `data/docs/*.md` → [`load_all_docs()`](03_rag.py) |
+| 向量化 | [`tokenize()`](03_rag.py) + [`build_tfidf_index()`](03_rag.py) |
+| 檢索 | [`retrieve_top_k()`](03_rag.py) + [`cosine_similarity()`](03_rag.py) |
+| 組 prompt | [`build_prompt_retrieved()`](03_rag.py) |
+| 生成 | [`ask()`](03_rag.py) → Claude |
+
+### 這個練習在測什麼
+
+用 `data/docs/*.md`（20 篇店家介紹文）做三種版本對照：
+
+| 版本 | 函式 | 給模型的資料 |
+|---|---|---|
+| A 版 | [`build_prompt_no_context()`](03_rag.py) | 完全不給文件（幻覺測試基準線） |
+| B 版 | [`build_prompt_full_context()`](03_rag.py) | 假 RAG——全部 20 篇整包塞進 prompt |
+| C 版 | [`build_prompt_retrieved()`](03_rag.py) | 真 RAG——只塞 `retrieve_top_k()` 撈到的 top-3 |
+
+測試題：「食尚玩家介紹過的碗粿老店裡，哪一家只賣碗粿和魚羹兩種東西、均一價35元？出自食尚玩家的哪篇報導？」
+
+正解：富盛號碗粿，出自〈台南碗粿內行老饕必吃５家〉。「均一價35元」和「哪篇報導」都是
+只有讀過文件才答得出來的細節——沒有文件的話，模型要嘛編一個聽起來合理的價格和篇名
+（幻覺），要嘛老實說不知道。
+
+### B 版 vs C 版：假 RAG 與真 RAG 的差別
+
+B 版和 C 版的 prompt 組裝邏輯幾乎一樣，**唯一差別是資料來源**：
+
+```python
+# B 版：全部文件
+doc_content = "\n".join(
+    f"### {name}\n{text}" for name, text in all_docs.items()
+)
+
+# C 版：只取檢索結果（retrieved = [(店名, 相似度分數), ...]）
+doc_content = "\n\n".join(
+    f"### {name}\n{all_docs[name]}" for name, score in retrieved
+)
+```
+
+`main()` 裡 C 版的完整流程：
+
+```python
+retrieved = retrieve_top_k(TEST_QUESTION, k=3)   # ① 檢索
+print(ask(build_prompt_retrieved(TEST_QUESTION, retrieved, ALL_DOCS)))  # ② 組 prompt + 生成
+```
+
+若 C 版跟 B 版答案一致，代表 top-3 沒有漏掉關鍵文件；若不一致，代表檢索出了問題。
+
+### 檢索機制：從文字到向量（TF-IDF）
+
+在算餘弦相似度之前，先把文字變成向量。這裡刻意用手刻的 **TF-IDF**（不是神經網路
+embedding），因為文件只有 20 篇，重點是看見「查詢和文件都變成向量、算相似度、排序
+取前幾名」這個檢索機制本身。
+
+#### 1. `tokenize()`：切成 bigram
+
+沒有斷詞函式庫，就兩個字一組當「詞」：
+
+```
+"富盛號碗粿" → ["富盛", "盛號", "號碗", "碗粿"]
+```
+
+簡單，但「早上生意」和「清晨五點半」不會有字重疊——這就是額外挑戰題會撈錯的原因。
+
+#### 2. TF（Term Frequency）：這個詞在這篇裡多常出現
+
+```
+TF("碗粿", 富盛號文件) = 「碗粿」出現次數 / 這篇總 bigram 數
+```
+
+出現越多次，這篇跟這個詞越相關。
+
+#### 3. IDF（Inverse Document Frequency）：這個詞有多「稀有」
+
+```python
+idf = math.log(文件總數 / 出現過這詞的文件數) + 1
+```
+
+- 「碗粿」很多店都有 → IDF 低（不太能區分）
+- 「均一價」只有少數文件有 → IDF 高（很有區分力）
+
+#### 4. TF-IDF = TF × IDF
+
+每篇文件變成一個 **dict**（稀疏向量），key 是 bigram，value 是權重：
+
+```python
+DOC_VECTORS["富盛號碗粿"] = {
+    "碗粿": 0.15,
+    "魚羹": 0.12,
+    "均一": 0.08,
+    ...
+}
+```
+
+問題也會用同樣方式變成 `query_vec`（[`embed_query()`](03_rag.py)），跟文件向量在
+**同一個向量空間**裡比較。
+
+### 餘弦相似度：在量什麼？
+
+[`cosine_similarity()`](03_rag.py) 第 130-138 行：
+
+```python
+def cosine_similarity(vec_a: dict[str, float], vec_b: dict[str, float]) -> float:
+    common = set(vec_a) & set(vec_b)
+    dot = sum(vec_a[t] * vec_b[t] for t in common)
+    norm_a = math.sqrt(sum(v * v for v in vec_a.values()))
+    norm_b = math.sqrt(sum(v * v for v in vec_b.values()))
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+```
+
+公式：
+
+\[
+\cos(\theta) = \frac{\vec{A} \cdot \vec{B}}{|\vec{A}| \times |\vec{B}|}
+\]
+
+想像兩個向量是兩支從原點指出去的箭頭：
+
+```
+        文件 B
+          ↗
+         /
+        /  θ（夾角）
+       /________→ 問題
+      文件 A
+```
+
+**餘弦相似度 = cos(θ)**，看的是**方向**像不像，不是長度。
+
+| 夾角 | cos(θ) | 意思 |
+|---|---|---|
+| 0°（同方向） | 1.0 | 非常像 |
+| 90°（垂直） | 0.0 | 無關 |
+
+為什麼用餘弦、不用直接把權重加總？長文章 bigram 多，向量「比較長」；餘弦會把
+長度除掉，只比**哪些詞重要、方向是否一致**，避免「字多就贏」。
+
+逐行對照：
+
+| 程式碼 | 在做什麼 |
+|---|---|
+| `common = set(vec_a) & set(vec_b)` | 兩個向量**共同有的 bigram**（稀疏向量只存非零維度） |
+| `dot = sum(...)` | **點積**：共同詞的權重相乘再相加，共同的重要詞越多分數越高 |
+| `norm_a`, `norm_b` | 向量的**長度**（L2 norm） |
+| `return dot / (norm_a * norm_b)` | 點積除以兩個長度 → 0～1 之間的分數 |
+
+### `retrieve_top_k()`：把檢索串起來
+
+```python
+def retrieve_top_k(query: str, k: int = 3) -> list[tuple[str, float]]:
+    query_vec = embed_query(query, IDF)                                    # 問題 → 向量
+    scores = [(name, cosine_similarity(query_vec, vec))                   # 跟每篇文件比
+              for name, vec in DOC_VECTORS.items()]
+    scores.sort(key=lambda x: x[1], reverse=True)                          # 由高到低排序
+    return scores[:k]                                                      # 取 top-k
+```
+
+用測試題走一遍：
+
+1. `tokenize` → `["碗粿", "老店", "魚羹", "均一", ...]`
+2. `embed_query` → `query_vec`
+3. 對 20 篇文件各算一次 `cosine_similarity`
+4. **富盛號碗粿** 有「碗粿」「魚羹」「均一」等重疊 → 分數高
+5. `sort` 後取 top-3
+
+### 額外挑戰題：TF-IDF 的天生弱點
+
+問題：「哪一家嘉義雞肉飯**只做早上生意**，**去晚一點就撲空**？」
+
+正解是阿溪火雞肉飯（05:30-13:00）。[`data/docs/阿溪火雞肉飯.md`](data/docs/阿溪火雞肉飯.md)
+寫的是「清晨五點半就開賣、下午一點打烊」「晚來就賣完」「早上限定」——人讀得懂
+「只做早上生意」≈ 清晨開、下午打烊，「去晚一點就撲空」≈ 晚來吃不到；但這題刻意
+用同義不同字面的說法問，跟文件實際用字完全沒有重疊：
+
+| 問法用的字 | 文件用的字 | TF-IDF 能 match 嗎？ |
+|---|---|---|
+| 早上生意 | 清晨、五點半、早上限定 | ❌ 「早上生意」這組 bigram 不存在於文件 |
+| 去晚一點撲空 | 晚來、賣完 | ❌ 字不同 |
+
+同時，問題裡的「嘉義」「雞肉飯」會跟**很多**嘉義雞肉飯文件重疊——民主、郭家、阿霞
+都會被拉高，阿溪反而因為「早鳥、清晨五點半」這種獨特用字，跟問題的用字對不上。
+
+結果 `retrieve_top_k()` 撈到的 top-3 是民主、郭家、阿霞，阿溪火雞肉飯直接沒進榜。
+
+為什麼同一件事換個說法問就找不到？可以拆成三層：
+
+```
+1. 餘弦相似度     → 只比向量方向像不像（數學本身沒問題）
+2. TF-IDF 向量    → 向量來自「哪些詞出現」，不是「意思是什麼」
+3. bigram tokenize → 連詞都切得很碎，字面重疊更難發生
+```
+
+**不只是 bigram 太僵化，而是整個 TF-IDF 檢索本來就不是語意檢索。** bigram 讓同義
+改寫更難 match，但就算換成更好的中文斷詞，沒有 embedding 就還是不懂 paraphrase
+（換句話說）。
+
+### TF-IDF 不是真正的 Embedding
+
+TF-IDF 比較像「用統計規則把文字變成數字」，不是「從大量語料裡學出語意」。
+
+| | TF-IDF | 真正的 Embedding |
+|---|---|---|
+| 怎麼來的 | 手刻公式（詞頻 × 逆文件頻率） | 神經網路從大量文字**學出來** |
+| 向量型態 | 稀疏（幾萬維，大多數是 0） | 稠密（例如 384、1536 維，每維都有值） |
+| 每一維代表什麼 | 一個**具體的詞/bigram** | 沒有固定人類可讀意義，是抽象特徵 |
+| 「清晨」和「早上」 | 兩個完全不同的維度 | 向量方向接近 |
+| 懂同義改寫嗎 | ❌ | ✅（程度取決於模型） |
+
+TF-IDF 是**詞袋模型（bag-of-words）**：文件 ≈ 一袋詞，每個詞一個權重。它不知道
+「清晨」≈「早上」、「賣完」≈「撲空」、「只做早上生意」≈「五點半開賣、下午打烊」。
+餘弦相似度只是在兩袋詞裡找**共同 key 的權重乘積**——沒有共同 key，語意再像也沒用。
+
+#### 向量空間的直覺對照
+
+TF-IDF 的世界（每個詞一根獨立軸）：
+
+```
+「清晨」軸 ████
+「早上」軸 ████        ← 兩根完全不同的軸，餘弦相似度 = 0
+「賣完」軸 ████
+「撲空」軸 ████
+```
+
+Embedding 的世界（語意相近的東西聚在一起）：
+
+```
+        · 清晨五點半開賣
+       · 只做早上生意          ← 這群聚在一起
+      · 早上限定
+
+                          · 深夜十二點才開門  ← 離很遠
+```
+
+### 真正的 Embedding 怎麼學出語意相似度？
+
+核心想法：
+
+> **在真實文字裡，意思相近的詞/句子，會出現在相似的上下文裡。**
+
+模型透過大量閱讀，把「常一起出現、用法類似」的東西映射到向量空間裡相近的位置——
+不是有人告訴它「清晨=早上」，是它從用法裡自己推出來的。
+
+#### 詞級：Word2Vec（Skip-gram，2013）
+
+```
+給模型看：「我每天早上吃 ___ 」
+任務：預測旁邊缺的那個詞
+```
+
+讀了幾十億句之後，「清晨」「早上」「黎明」常出現在同樣的句子結構裡，「賣完」
+「撲空」「吃不到」也常出現在類似情境——這些詞的向量會被調整到方向接近。
+
+#### 句級 / 文件級：現代 RAG 常用（Transformer）
+
+現代 RAG 多半把整句或整段變成一個向量（OpenAI embedding、Voyage、BGE 等）。
+常見訓練方式：
+
+| 方法 | 在做什麼 |
+|---|---|
+| **對比學習** | 語意相近的配對（「清晨五點半開賣」↔「只做早上生意」）拉近；不相近的推開 |
+| **遮罩語言模型**（BERT 類） | 遮住某些詞叫模型猜回來；要猜對必須理解上下文語意 |
+| **檢索任務微調** | 直接用「問題 ↔ 相關文件」配對微調，專門為 RAG 檢索優化 |
+
+#### 換成 Embedding 後，程式架構不變
+
+RAG 骨架（檢索 → 塞 prompt → 生成）不變，只換「文字怎麼變向量」這一層：
+
+```python
+# 現在（TF-IDF）
+query_vec = embed_query(query, IDF)
+
+# 實務（神經網路 embedding）
+query_vec = voyage_client.embed(query)   # 或 openai.embeddings.create(...)
+```
+
+檢索準不準，取決於 embedding 懂不懂語意；[`cosine_similarity()`](03_rag.py) 這層
+數學通常還是用餘弦，換的是向量從哪裡來。
+
+### 練習版 vs 實務版 RAG
+
+你練的是**機制本身**；實務會換更強的零件，但流程不變：
+
+| 環節 | 這個練習版 | 實務常見版 |
+|---|---|---|
+| 切塊 | 一篇 doc = 一家店 | 長文件切成很多 chunk |
+| 向量化 | TF-IDF（字面相似） | Embedding 模型（語意相似） |
+| 相似度 | 餘弦相似度 | 多半還是餘弦，或點積 |
+| 儲存 | 記憶體裡的 dict | 向量資料庫（Pinecone、Chroma…） |
+| 檢索量 | top-3 | top-k，常加 rerank |
+| 生成 | 一次 `ask()` | 同上，或接進 agent loop |
+
+**餘弦相似度**在實務裡也很常見；常換的是 **TF-IDF → 神經網路 embedding**。
+
+### 跟前面階段的關係
+
+```
+Stage 1 CoT   → 模型在腦內推理（沒有外部資料）
+Stage 2 ReAct → 模型呼叫「結構化工具」（is_open、distance、search_shops）
+Stage 3 RAG   → 模型拿到「非結構化文件」裡撈出來的片段
+```
+
+RAG 跟階段 2 的 `search_shops` 差在哪？
+
+| | `search_shops`（階段 2） | RAG（階段 3） |
+|---|---|---|
+| 查詢方式 | 結構化——精確比對 `city`、`dish_keyword` 欄位 | 語意檢索——不知道確切欄位，只知道問題大意 |
+| 資料型態 | `shops.json` 的結構化欄位 | `data/docs/*.md` 的自由文字 |
+| 典型問題 | 「台中有哪些宵夜？」 | 「只做早上生意、去晚就撲空的是哪家？」 |
+
+`search_shops(city="嘉義")` 查得到嘉義的店，但查不到「只做早上生意、去晚就撲空」
+這種**語意描述**——這就要 RAG。
+
+延伸方向：把 `retrieve_top_k()` 包成 ReAct loop 裡的第四個工具，變成 **agentic RAG**
+（模型自己決定什麼時候該檢索文件）。
+
+### 跑法
+
+```bash
+source venv/bin/activate
+python3 03_rag.py
+```
+
+手動測試檢索（不用呼叫 API）：
+
+```bash
+python3 -c "
+from importlib.util import spec_from_file_location, module_from_spec
+spec = spec_from_file_location('r', '03_rag.py')
+m = module_from_spec(spec); spec.loader.exec_module(m)
+q = '哪一家嘉義雞肉飯只做早上生意，去晚一點就撲空？'
+print(m.retrieve_top_k(q))
+"
+```
