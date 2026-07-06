@@ -244,7 +244,7 @@ flowchart TD
     Parse --> Handler{CAPABILITIES 對照表}
     Handler -->|get_weather| W[get_weather]
     Handler -->|search_bus_routes| B[search_bus_routes]
-    W --> Resp[status: completed<br/>output: {...}]
+    W --> Resp[status: completed<br/>output 為查詢結果 JSON]
     B --> Resp
 ```
 
