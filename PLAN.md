@@ -125,6 +125,39 @@
 
 ---
 
+## 階段 6:LangGraph——同一件事,換框架做
+
+**概念**:前面五階段刻意不用框架,是為了看見 ReAct 迴圈、subagent 委派這些機制的裸實作。這一階段用 LangGraph 的 `StateGraph`/node/edge 重做一次「ReAct + Subagent」,重點不是做出新功能,而是**對照**——同一份資料、同一個測試題,手刻版 vs 框架版,才看得出框架幫你省了什麼、又用什麼抽象藏住了細節。
+
+**練習**:寫 `06_langgraph.py`,用 LangGraph 重建多專才協作:
+- 沿用階段 3 的 RAG(限縮台南店家)、階段 5 的天氣/公車模擬資料
+- 四個 node:美食評論員(RAG)、天氣查詢、公車查詢、彙整——測試題完全沒提到預算,所以沒有沿用階段 4 的預算控管 node
+- 用 `StateGraph` 的 edge 決定 orchestrator 怎麼委派與彙整,取代手刻的委派邏輯
+
+**測試題**:直接複用階段 5 的題目:「這週末去台南吃資料集裡的名店,會下雨嗎?怎麼搭車?」——但這次不開兩個 HTTP 服務,改成單一 graph 內的多節點協作,順便對照「A2A(跨服務)vs LangGraph 內的 multi-node(同程式)」的差異。
+
+**驗收標準**:
+- [ ] 能指出 LangGraph 的 `StateGraph`/node/edge 對應到階段 2、4 手刻的哪一段程式碼
+- [ ] 能回答:框架版省了什麼(例如狀態管理、工具呼叫的重試/錯誤處理)、又犧牲了什麼可見性
+- [ ] 用同一測試題跑手刻版(階段 2+4)vs LangGraph 版,比較兩者的 token 用量或呼叫次數
+- [ ] **平行化延伸**:把美食評論員/天氣/公車三個 node 從序列改成平行執行的 edge,觀察 state 合併行為。這三個 node 各自寫入獨立的 state key(`food_report`/`weather_report`/`bus_report`),平行執行不會有傳統 race condition(各自等待 I/O、不共用同一塊記憶體),但如果不小心讓兩個 node 寫「同一個 key」,LangGraph 合併平行分支時預設會覆蓋或報錯——這才是框架特有的衝突,要用 `Annotated[T, reducer]` 明確定義合併策略。能回答:為什麼手刻版(階段 4 的 `run_subagent`)完全不會遇到這個問題?(提示:手刻版是你自己一步步組字串、自己決定誰先誰後,合併邏輯全部顯式寫在 `run_orchestrator` 裡;框架把「平行分支怎麼合併」這件事變成隱式規則,不寫 reducer 就用預設值)
+
+**環境隔離**:LangChain/LangGraph 依賴樹較重,另開 `requirements-langgraph.txt`(或獨立 venv),避免污染階段 1–5 的乾淨環境。
+
+**Note(實測結果)**:`06_langgraph.py` 加了每個 node 的計時(`NODE_TIMINGS` + `_timed` 裝飾器),實際各跑一次序列版(`python3 06_langgraph.py`)和平行版(`--parallel`),結果:
+
+| Node | 序列版 | 平行版 |
+|---|---|---|
+| food_critic | 4.51s | 4.21s |
+| weather | 0.00s | 0.00s |
+| bus | 0.00s | 0.00s |
+| synthesize | 4.31s | 5.08s |
+| **total** | **8.82s** | **9.29s** |
+
+平行版並沒有比較快,差異落在誤差範圍內。原因:`weather`/`bus` 是純本地查詢(~0 秒),跟耗時的 `food_critic`(呼叫一次 LLM)平行執行沒有意義——三個 node 裡只有一個慢,把不慢的兩個跟它平行化省不了時間。真正的瓶頸是兩次必經、彼此有依賴關係的 LLM 呼叫(`food_critic` → `synthesize`),不管 `weather`/`bus` 的 edge 怎麼排都繞不開。**結論:平行化不是萬靈丹,要先確認瓶頸是不是真的分散在多個平行分支上,而不是集中在單一 node。**
+
+---
+
 ## 建議節奏
 
 | 階段 | 預估時間 | 前置 |
@@ -135,5 +168,6 @@
 | 3 RAG | 1–2 天 | 0 |
 | 4 Subagent | 2–3 天 | 2+3 |
 | 5 A2A | 2–3 天 | 4 |
+| 6 LangGraph | 1–2 天 | 2+4 |
 
-原則:每階段先不用框架(LangChain 等)手刻一次,理解機制後,想換框架再換——做中學的重點是看見裸的機制。
+原則:每階段先不用框架(LangChain 等)手刻一次,理解機制後,想換框架再換——做中學的重點是看見裸的機制。階段 6 就是「換框架」這一步,對照才是重點,不是重新發明功能。

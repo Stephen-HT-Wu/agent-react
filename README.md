@@ -1,10 +1,10 @@
 # agent-react
 
-以本專案練習資料集裡的虛構店家為素材，**手刻**一條從 prompt 到 multi-agent 的學習路徑：CoT → ReAct → RAG → Subagent → A2A。刻意不用 LangChain 等框架，目的是看見每個機制的裸實作。
+以本專案練習資料集裡的虛構店家為素材，**手刻**一條從 prompt 到 multi-agent 的學習路徑：CoT → ReAct → RAG → Subagent → A2A → LangGraph。前幾階刻意不用 LangChain 等框架，目的是看見每個機制的裸實作；階段 6 再用 LangGraph 對照框架版。
 
-完整練習規劃見 [PLAN.md](PLAN.md)；各階段實際跑出來的結果與機制筆記見 [NOTES.md](NOTES.md)。
+完整練習規劃見 [PLAN.md](PLAN.md)；各階段實際跑出來的結果與機制筆記見 [NOTES.md](NOTES.md)；**六階段流程圖解說**見 [FLOWCHARTS.md](FLOWCHARTS.md)。
 
-## 五階段一覽
+## 六階段一覽
 
 | 階段 | 檔案 | 核心概念 |
 |------|------|----------|
@@ -14,6 +14,7 @@
 | 3 | [`03_rag.py`](03_rag.py) | RAG：TF-IDF 檢索 + 有/無文件對照 |
 | 4 | [`04_subagent.py`](04_subagent.py) | Subagent：orchestrator 委派三位專才（context 隔離） |
 | 5 | [`05_a2a_food_agent.py`](05_a2a_food_agent.py) · [`05_a2a_travel_agent.py`](05_a2a_travel_agent.py) | A2A：兩個 HTTP 服務，agent card 動態發現能力 |
+| 6 | [`06_langgraph.py`](06_langgraph.py) | LangGraph：StateGraph 對照手刻版編排 |
 
 ## 環境設定
 
@@ -72,6 +73,7 @@ agent-react/
 ├── 04_subagent.py         # 階段 4：行程總監 + 三位子 agent
 ├── 05_a2a_food_agent.py   # 階段 5：美食 agent（客戶端）
 ├── 05_a2a_travel_agent.py # 階段 5：旅遊 agent（服務端）
+├── 06_langgraph.py        # 階段 6：LangGraph StateGraph 對照
 ├── data/
 │   ├── shops.json         # 結構化店家（工具查詢用）
 │   ├── docs/*.md          # 店家介紹摘要（RAG 用）
@@ -96,6 +98,7 @@ agent-react/
 
 - [PLAN.md](PLAN.md) — 各階段目標、測試題、驗收標準
 - [NOTES.md](NOTES.md) — TF-IDF vs embedding、subagent 仲裁、A2A agent card、產品化風險等筆記
+- [FLOWCHARTS.md](FLOWCHARTS.md) — 六階段流程圖解說
 - [Google A2A 規格](https://google.github.io/A2A/) — 對照階段 5 簡化協定（狀態機、串流、認證）
 
 ## License
